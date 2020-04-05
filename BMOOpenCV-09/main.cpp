@@ -20,7 +20,7 @@
 using namespace std;
 using namespace cv;
 
-const String caminho = "/Users/brenomedeiros/Documents/ProgramasBMO/Cpp/BMOOpenCV-08/BMOOpenCV-08/";
+const String caminho = "/Users/brenomedeiros/Documents/ProgramasBMO/Cpp/BMOOpenCV-09/BMOOpenCV-09/";
 const String caminhoImagens = caminho + "Images/";
 const String caminhoImagensWebcam = caminhoImagens + "webcam/";
 
@@ -29,7 +29,7 @@ const float dimensaoDoQuadradoAruco = 0.058500f;        //metros
 const Size dimensaoTabuleiroXadrex = Size(6,9);
 
 
-void criarTabuleiroConhecido(Size tamanhoDoTabuleiro, float comprimentoDeQuadradoDeFronteira, vector<Point3f>& arestas) {
+void criarPosicaoDeTabuleiroConhecido(Size tamanhoDoTabuleiro, float comprimentoDeQuadradoDeFronteira, vector<Point3f>& arestas) {
     for (int i=0; i<tamanhoDoTabuleiro.height; i++) {
         for (int j=0; j<tamanhoDoTabuleiro.width; j++) {
             arestas.push_back(Point3f(j*comprimentoDeQuadradoDeFronteira, i*comprimentoDeQuadradoDeFronteira, 0.0f));
@@ -51,6 +51,52 @@ void getArestasDoTabuleiro(vector<Mat> imagens, vector<vector<Point2f>>& todasAs
             waitKey(0);
         }
     }
+}
+
+void calibracaoDaCamera(vector<Mat> imagensDeCalibragem, Size tamanhoDoTabuleiro, float comprimentoDeQuadradoDeFronteira, Mat& matrizDaCamera, Mat& coeficienteDeDistancia) {
+    vector<vector<Point2f>> pontosEspaciaisDaImagemDoTabuleiro;
+    getArestasDoTabuleiro(imagensDeCalibragem, pontosEspaciaisDaImagemDoTabuleiro, false);
+    
+    //Armazena nossas posicoes de tabuleiro para cada imagem
+    vector<vector<Point3f>> PontosDeArestasEspaciaisDoMundo(1); //Tamanho/Size = 1
+    criarPosicaoDeTabuleiroConhecido(tamanhoDoTabuleiro, comprimentoDeQuadradoDeFronteira, PontosDeArestasEspaciaisDoMundo[0]);
+    
+    //Redimensiona essas matrizes para o tamanho das imagens que nos ja temos no elemento da posição 0. Relacionando os pontos 2D com os 3D.
+    PontosDeArestasEspaciaisDoMundo.resize(pontosEspaciaisDaImagemDoTabuleiro.size(), PontosDeArestasEspaciaisDoMundo[0]);
+    
+    vector<Mat> vetorR, vetorT; // vetor de raio, e vetor tangencial
+    coeficienteDeDistancia = Mat::zeros(8, 1, CV_64F);
+    calibrateCamera(PontosDeArestasEspaciaisDoMundo, pontosEspaciaisDaImagemDoTabuleiro, tamanhoDoTabuleiro, matrizDaCamera, coeficienteDeDistancia, vetorR, vetorT);
+}
+
+bool salvarCalibragemDeCamera(string nome, Mat matrizDeCamera, Mat coeficienteDeDistancia) {
+    ofstream transmissaoDeSaida(nome);
+    if (transmissaoDeSaida) {
+        uint16_t linhas  = matrizDeCamera.rows;
+        uint16_t colunas = matrizDeCamera.cols;
+        
+        for (int l=0; l<linhas; linhas++) {
+            for (int c=0; c<colunas; c++) {
+                double valor = matrizDeCamera.at<double>(l, c);
+                transmissaoDeSaida << valor << endl;
+            }
+        }
+        
+        linhas = coeficienteDeDistancia.rows;
+        colunas = coeficienteDeDistancia.cols;
+        
+        for (int l=0; l<linhas; linhas++) {
+            for (int c=0; c<colunas; c++) {
+                double valor = coeficienteDeDistancia.at<double>(l, c);
+                transmissaoDeSaida << valor << endl;
+            }
+        }
+        
+        transmissaoDeSaida.close();
+        return true;
+    }
+    
+    return false;
 }
 
 int main(int argc, const char * argv[]) {
@@ -91,7 +137,31 @@ int main(int argc, const char * argv[]) {
         } else {
             imshow("Webcam", quadro);
         }
+        
         char caractere = waitKey(1000/quadrosPorSegundo);
+        switch (caractere) {
+            case ' ': //Espaco
+                //Salvar Imagem.
+                if (encontrou) {
+                    Mat temp;
+                    quadro.copyTo(temp);
+                    imagensSalvas.push_back(temp);
+                }
+                break;
+                
+            case 13:  //Enter
+                //Comecar calibragem.
+                if (imagensSalvas.size()>15) {
+                    calibracaoDaCamera(imagensSalvas, dimensaoTabuleiroXadrex, dimensaoDoQuadradoDaCalibragem, matrizDaCamera, coeficienteDeDistancia);
+                    salvarCalibragemDeCamera(caminho+"CalibragemiMac2017.txt", matrizDaCamera, coeficienteDeDistancia);
+                }
+                break;
+                
+            case 27:  //Esc
+                //Sair.
+                return 0;
+                break;
+        }
     }
     
     return 0;
