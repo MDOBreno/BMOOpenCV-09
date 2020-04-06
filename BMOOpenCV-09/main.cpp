@@ -53,7 +53,45 @@ void getArestasDoTabuleiro(vector<Mat> imagens, vector<vector<Point2f>>& todasAs
     }
 }
 
-void calibracaoDaCamera(vector<Mat> imagensDeCalibragem, Size tamanhoDoTabuleiro, float comprimentoDeQuadradoDeFronteira, Mat& matrizDaCamera, Mat& coeficienteDeDistancia) {
+int comecarMonitoramentoDeWebcam(const Mat& matrizDaCamera, const Mat& coeficientesDeDistancia, float dimensaoDoQuadradoAruco) {
+    Mat quadro;
+    
+    vector<int> idsDosMarcadores;
+    //Vetor de vetor de Pontos, que são as arestas do marcador que esta sendo detectado.
+    vector<vector<Point2f>> arestasDoMarcador, candidatosRejeitados;
+    
+    aruco::DetectorParameters parametros;
+    Ptr<aruco::Dictionary> dicionarioDoMarcador = aruco::getPredefinedDictionary(aruco::PREDEFINED_DICTIONARY_NAME::DICT_4X4_50);
+    
+    VideoCapture vid(0);
+    if (!vid.isOpened()) {
+        return -1;
+    }
+    
+    namedWindow("Webcam", CV_WINDOW_AUTOSIZE);
+    vector<Vec3d> vetoresRotacionais, vetoresTranslacionais;
+    
+    //Aqui novamente utilizamos um loop para sair percorrendo a imagem em busca do marcador.
+    while (true) {
+        if (!vid.read(quadro)) {
+            break;
+        }
+
+        aruco::detectMarkers(quadro, dicionarioDoMarcador, arestasDoMarcador, idsDosMarcadores);
+        aruco::estimatePoseSingleMarkers(arestasDoMarcador, dimensaoDoQuadradoAruco, matrizDaCamera, coeficientesDeDistancia, vetoresRotacionais, vetoresTranslacionais);
+        
+        for (int i=0; i<idsDosMarcadores.size(); i++) {
+            aruco::drawAxis(quadro, matrizDaCamera, coeficientesDeDistancia, vetoresRotacionais, vetoresTranslacionais, 1.0f);
+        }
+        imshow("Webcam", quadro);
+        if (waitKey(30)>=0) {
+            break;
+        }
+    }
+    return 1;
+}
+
+void calibracaoDaCamera(vector<Mat> imagensDeCalibragem, Size tamanhoDoTabuleiro, float comprimentoDeQuadradoDeFronteira, Mat& matrizDaCamera, Mat& coeficientesDeDistancia) {
     vector<vector<Point2f>> pontosEspaciaisDaImagemDoTabuleiro;
     getArestasDoTabuleiro(imagensDeCalibragem, pontosEspaciaisDaImagemDoTabuleiro, false);
     
@@ -65,15 +103,19 @@ void calibracaoDaCamera(vector<Mat> imagensDeCalibragem, Size tamanhoDoTabuleiro
     PontosDeArestasEspaciaisDoMundo.resize(pontosEspaciaisDaImagemDoTabuleiro.size(), PontosDeArestasEspaciaisDoMundo[0]);
     
     vector<Mat> vetorR, vetorT; // vetor de raio, e vetor tangencial
-    coeficienteDeDistancia = Mat::zeros(8, 1, CV_64F);
-    calibrateCamera(PontosDeArestasEspaciaisDoMundo, pontosEspaciaisDaImagemDoTabuleiro, tamanhoDoTabuleiro, matrizDaCamera, coeficienteDeDistancia, vetorR, vetorT);
+    coeficientesDeDistancia = Mat::zeros(8, 1, CV_64F);
+    calibrateCamera(PontosDeArestasEspaciaisDoMundo, pontosEspaciaisDaImagemDoTabuleiro, tamanhoDoTabuleiro, matrizDaCamera, coeficientesDeDistancia, vetorR, vetorT);
 }
 
-bool salvarCalibragemDeCamera(string nome, Mat matrizDeCamera, Mat coeficienteDeDistancia) {
+bool salvarCalibragemDeCamera(string nome, Mat matrizDeCamera, Mat coeficientesDeDistancia) {
     ofstream transmissaoDeSaida(nome);
     if (transmissaoDeSaida) {
+        
         uint16_t linhas  = matrizDeCamera.rows;
         uint16_t colunas = matrizDeCamera.cols;
+        
+        transmissaoDeSaida << linhas << endl;
+        transmissaoDeSaida << colunas << endl;
         
         for (int l=0; l<linhas; linhas++) {
             for (int c=0; c<colunas; c++) {
@@ -82,12 +124,15 @@ bool salvarCalibragemDeCamera(string nome, Mat matrizDeCamera, Mat coeficienteDe
             }
         }
         
-        linhas = coeficienteDeDistancia.rows;
-        colunas = coeficienteDeDistancia.cols;
+        linhas = coeficientesDeDistancia.rows;
+        colunas = coeficientesDeDistancia.cols;
+        
+        transmissaoDeSaida << linhas << endl;
+        transmissaoDeSaida << colunas << endl;
         
         for (int l=0; l<linhas; linhas++) {
             for (int c=0; c<colunas; c++) {
-                double valor = coeficienteDeDistancia.at<double>(l, c);
+                double valor = coeficientesDeDistancia.at<double>(l, c);
                 transmissaoDeSaida << valor << endl;
             }
         }
@@ -99,6 +144,45 @@ bool salvarCalibragemDeCamera(string nome, Mat matrizDeCamera, Mat coeficienteDe
     return false;
 }
 
+bool carregarCalibragemDeCamera(string nome, Mat& matrizDeCamera, Mat& coeficientesDeDistancia) {
+    ifstream transmissaoDeEntrada(nome);
+    if (transmissaoDeEntrada) {
+        uint16_t linhas;
+        uint16_t colunas;
+        
+        transmissaoDeEntrada >> linhas;
+        transmissaoDeEntrada >> colunas;
+        
+        matrizDeCamera = Mat(Size(linhas, colunas), CV_64F);    //Inverti a ordem de "(colunas, linhas)" do video, por julgar q estava errado
+        
+        for (int l=0; l<linhas; l++) {
+            for (int c=0; c<colunas; c++) {
+                double ler = 0.0f;
+                transmissaoDeEntrada >> linhas;
+                matrizDeCamera.at<double>(l, c) = ler;
+                cout << matrizDeCamera.at<double>(l,c) << "\n";
+            }
+        }
+        
+        //Coeficientes de Distancia
+        transmissaoDeEntrada >> linhas;
+        transmissaoDeEntrada >> colunas;
+        
+        coeficientesDeDistancia = Mat::zeros(linhas, colunas, CV_64F);
+        for (int l=0; l<linhas; l++) {
+            for (int c=0; c<colunas; c++) {
+                double ler = 0.0f;
+                transmissaoDeEntrada >> ler;
+                coeficientesDeDistancia.at<double>(l,c) = ler;
+                cout << coeficientesDeDistancia.at<double>(l,c) << "\n";
+            }
+        }
+        transmissaoDeEntrada.close();
+        return true;
+    }
+    return false;
+}
+
 int main(int argc, const char * argv[]) {
     // insert code here...
     
@@ -107,7 +191,7 @@ int main(int argc, const char * argv[]) {
     
     Mat matrizDaCamera = Mat::eye(3, 3, CV_64F);
     
-    Mat coeficienteDeDistancia;
+    Mat coeficientesDeDistancia;
     
     vector<Mat> imagensSalvas;
     
@@ -152,8 +236,8 @@ int main(int argc, const char * argv[]) {
             case 13:  //Enter
                 //Comecar calibragem.
                 if (imagensSalvas.size()>15) {
-                    calibracaoDaCamera(imagensSalvas, dimensaoTabuleiroXadrex, dimensaoDoQuadradoDaCalibragem, matrizDaCamera, coeficienteDeDistancia);
-                    salvarCalibragemDeCamera(caminho+"CalibragemiMac2017.txt", matrizDaCamera, coeficienteDeDistancia);
+                    calibracaoDaCamera(imagensSalvas, dimensaoTabuleiroXadrex, dimensaoDoQuadradoDaCalibragem, matrizDaCamera, coeficientesDeDistancia);
+                    salvarCalibragemDeCamera(caminho+"CalibragemiMac2017.txt", matrizDaCamera, coeficientesDeDistancia);
                 }
                 break;
                 
