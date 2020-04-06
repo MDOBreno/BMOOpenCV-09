@@ -53,7 +53,8 @@ void getArestasDoTabuleiro(vector<Mat> imagens, vector<vector<Point2f>>& todasAs
     }
 }
 
-int comecarMonitoramentoDeWebcam(const Mat& matrizDaCamera, const Mat& coeficientesDeDistancia, float dimensaoDoQuadradoAruco) {
+//Criado em algum momento entre as aulas 15 e 18, ele foi refeito na Aula 21(Final), e esta neste arquivo.
+/*int comecarMonitoramentoDeWebcam(const Mat& matrizDaCamera, const Mat& coeficientesDeDistancia, float dimensaoDoQuadradoAruco) {
     Mat quadro;
     
     vector<int> idsDosMarcadores;
@@ -89,7 +90,7 @@ int comecarMonitoramentoDeWebcam(const Mat& matrizDaCamera, const Mat& coeficien
         }
     }
     return 1;
-}
+}*/
 
 void calibracaoDaCamera(vector<Mat> imagensDeCalibragem, Size tamanhoDoTabuleiro, float comprimentoDeQuadradoDeFronteira, Mat& matrizDaCamera, Mat& coeficientesDeDistancia) {
     vector<vector<Point2f>> pontosEspaciaisDaImagemDoTabuleiro;
@@ -117,7 +118,7 @@ bool salvarCalibragemDeCamera(string nome, Mat matrizDeCamera, Mat coeficientesD
         transmissaoDeSaida << linhas << endl;
         transmissaoDeSaida << colunas << endl;
         
-        for (int l=0; l<linhas; linhas++) {
+        for (int l=0; l<linhas; l++) {
             for (int c=0; c<colunas; c++) {
                 double valor = matrizDeCamera.at<double>(l, c);
                 transmissaoDeSaida << valor << endl;
@@ -130,7 +131,7 @@ bool salvarCalibragemDeCamera(string nome, Mat matrizDeCamera, Mat coeficientesD
         transmissaoDeSaida << linhas << endl;
         transmissaoDeSaida << colunas << endl;
         
-        for (int l=0; l<linhas; linhas++) {
+        for (int l=0; l<linhas; l++) {
             for (int c=0; c<colunas; c++) {
                 double valor = coeficientesDeDistancia.at<double>(l, c);
                 transmissaoDeSaida << valor << endl;
@@ -158,7 +159,7 @@ bool carregarCalibragemDeCamera(string nome, Mat& matrizDeCamera, Mat& coeficien
         for (int l=0; l<linhas; l++) {
             for (int c=0; c<colunas; c++) {
                 double ler = 0.0f;
-                transmissaoDeEntrada >> linhas;
+                transmissaoDeEntrada >> ler;
                 matrizDeCamera.at<double>(l, c) = ler;
                 cout << matrizDeCamera.at<double>(l,c) << "\n";
             }
@@ -183,15 +184,49 @@ bool carregarCalibragemDeCamera(string nome, Mat& matrizDeCamera, Mat& coeficien
     return false;
 }
 
-int main(int argc, const char * argv[]) {
-    // insert code here...
+int comecarMonitoramentoDeWebcam(const Mat& matrizDaCamera, const Mat& coeficientesDeDistancia, float dimensaoDoQuadradoAruco) {
+    Mat quadro;
     
+    vector<int> idsDosMarcadores;
+    //Vetor de vetor de Pontos, que são as arestas do marcador que esta sendo detectado.
+    vector<vector<Point2f>> arestasDoMarcador, candidatosRejeitados;
+    
+    aruco::DetectorParameters parametros;
+    //Como existem diversos dicionarios, criaremos o ponteiro abaixo para termos certeza de pegar o correto.
+    Ptr<aruco::Dictionary> dicionarioDoMarcador = aruco::getPredefinedDictionary(aruco::PREDEFINED_DICTIONARY_NAME::DICT_4X4_50);
+    
+    VideoCapture vid(0);
+    if (!vid.isOpened()) {
+        return -1;
+    }
+    
+    namedWindow("Webcam", CV_WINDOW_AUTOSIZE);
+    vector<Vec3d> vetoresRotacionais, vetoresTranslacionais;
+    
+    //Aqui novamente utilizamos um loop para sair percorrendo a imagem em busca do marcador.
+    while (true) {
+        if (!vid.read(quadro)) {
+            break;
+        }
+
+        aruco::detectMarkers(quadro, dicionarioDoMarcador, arestasDoMarcador, idsDosMarcadores);
+        aruco::estimatePoseSingleMarkers(arestasDoMarcador, dimensaoDoQuadradoAruco, matrizDaCamera, coeficientesDeDistancia, vetoresRotacionais, vetoresTranslacionais);
+        
+        for (int i=0; i<idsDosMarcadores.size(); i++) {
+            aruco::drawAxis(quadro, matrizDaCamera, coeficientesDeDistancia, vetoresRotacionais[i], vetoresTranslacionais[i], 0.1f);
+        }
+        imshow("Webcam", quadro);
+        if (waitKey(30)>=0) {
+            break;
+        }
+    }
+    return 1;
+}
+
+int processoDeCalibragemDeCamera(Mat& matrizDaCamera, Mat& coeficientesDeDistancia) {
     Mat quadro;
     Mat desenhoProQuadro;
     
-    Mat matrizDaCamera = Mat::eye(3, 3, CV_64F);
-    
-    Mat coeficientesDeDistancia;
     
     vector<Mat> imagensSalvas;
     
@@ -234,11 +269,16 @@ int main(int argc, const char * argv[]) {
                 break;
                 
             case 13:  //Enter
-                //Comecar calibragem.
+                //Comecar calibragem, e Salva a Calibragem.
                 if (imagensSalvas.size()>15) {
                     calibracaoDaCamera(imagensSalvas, dimensaoTabuleiroXadrex, dimensaoDoQuadradoDaCalibragem, matrizDaCamera, coeficientesDeDistancia);
                     salvarCalibragemDeCamera(caminho+"CalibragemiMac2017.txt", matrizDaCamera, coeficientesDeDistancia);
                 }
+                break;
+                    
+            case 'l': //'L'
+                //Carrega a Calibragem.
+                carregarCalibragemDeCamera(caminho+"CalibragemiMac2017.txt", matrizDaCamera, coeficientesDeDistancia);
                 break;
                 
             case 27:  //Esc
@@ -247,6 +287,18 @@ int main(int argc, const char * argv[]) {
                 break;
         }
     }
+    
+    return 0;
+}
+
+int main(int argc, const char * argv[]) {
+    // insert code here...
+    
+    Mat matrizDaCamera = Mat::eye(3, 3, CV_64F);
+    Mat coeficientesDeDistancia;
+    
+    processoDeCalibragemDeCamera(matrizDaCamera, coeficientesDeDistancia);
+    comecarMonitoramentoDeWebcam(matrizDaCamera, coeficientesDeDistancia, dimensaoDoQuadradoAruco);
     
     return 0;
 }
